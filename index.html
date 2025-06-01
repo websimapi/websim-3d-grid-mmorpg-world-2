@@ -141,17 +141,18 @@
     }
 
     function updateCameraPosition() {
-      // Simple top-down camera that follows player smoothly
-      const targetCameraX = player.position.x;
-      const targetCameraZ = player.position.z + 5; // Slightly behind player
-      const targetCameraY = 20; // Fixed height for top-down view
+      // Fixed top-down camera that follows player position exactly
+      const cameraHeight = 20;
+      const cameraOffset = 5; // Slight offset behind player for better view
       
-      // Smooth camera following with lerp
-      camera.position.x += (targetCameraX - camera.position.x) * 0.1;
-      camera.position.z += (targetCameraZ - camera.position.z) * 0.1;
-      camera.position.y = targetCameraY; // Keep Y fixed
+      // Set camera position directly above and slightly behind player
+      camera.position.set(
+        player.position.x,
+        cameraHeight,
+        player.position.z + cameraOffset
+      );
       
-      // Always look at player position
+      // Always look directly at the player
       camera.lookAt(player.position.x, player.position.y, player.position.z);
     }
 
@@ -194,7 +195,6 @@
             const deltaY = event.clientY - dragStart.y;
             
             const rotationSpeed = 0.005; 
-            const zoomSpeed = 0.05;    
 
             // Horizontal drag rotates camera around player (Y-axis rotation only)
             const angle = -deltaX * rotationSpeed;
@@ -215,7 +215,7 @@
             camera.position.z = player.position.z + newOffsetZ;
 
             // Vertical drag adjusts camera height (zoom)
-            camera.position.y += deltaY * zoomSpeed;
+            camera.position.y += deltaY * 0.05;
             camera.position.y = Math.max(10, Math.min(30, camera.position.y));
 
             // Always look at player

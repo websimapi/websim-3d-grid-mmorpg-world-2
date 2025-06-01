@@ -130,7 +130,7 @@
 
     function updateCameraPosition() {
       camera.position.set(player.position.x, player.position.y + cameraHeight, player.position.z);
-      camera.lookAt(player.position);
+      camera.lookAt(player.position.x, 0, player.position.z);
     }
 
     function createPlayerIndicator() {

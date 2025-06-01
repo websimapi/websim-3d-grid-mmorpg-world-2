@@ -51,18 +51,17 @@
     const loader = new THREE.GLTFLoader();
 
     let player = {
-      position: new THREE.Vector3(0, 1, 0),
+      position: new THREE.Vector3(0, 1, 0), // Initial Y will be updated after level load
       indicator: null,
-      targetPosition: new THREE.Vector3(0, 1, 0),
+      targetPosition: new THREE.Vector3(0, 1, 0), // Initial Y will be updated
       moving: false,
-      speed: 0.05
+      speed: 0.1 // Increased speed
     };
     let raycaster = new THREE.Raycaster();
     let mouse = new THREE.Vector2();
     let isDragging = false;
     let dragStart = new THREE.Vector2();
-    let cameraOffset = new THREE.Vector3(5, 8, 5);
-    let cameraHeight = 15; // Height above player for top-down view
+    let cameraOffset = new THREE.Vector3(0, 15, 8); // More top-down, slightly back for perspective
 
     function init() {
       scene = new THREE.Scene();
@@ -92,6 +91,9 @@
       controls.enabled = false; // Disable orbit controls for manual drag
 
       // Add player indicator
+      // Initial player Y position might change after level load, so we'll update it then.
+      player.position.set(0, 0, 0); // Start at 0,0,0 temporarily
+      player.targetPosition.copy(player.position);
       createPlayerIndicator();
 
       // Add event listeners for click-to-move and camera drag
@@ -122,6 +124,14 @@
         .then(response => response.json())
         .then(levelData => {
           loadLevel(levelData);
+          // Update player's Y position based on loaded level
+          const initialPlayerGroundY = getGroundYAt(player.position.x, player.position.z);
+          player.position.y = initialPlayerGroundY;
+          player.targetPosition.y = initialPlayerGroundY;
+          if (player.indicator) {
+            player.indicator.position.y = initialPlayerGroundY;
+          }
+          updateCameraPosition(); // Update camera after player Y is set
         })
         .catch(error => {
           console.error('Error loading level:', error);
@@ -129,8 +139,9 @@
     }
 
     function updateCameraPosition() {
-      camera.position.set(player.position.x, player.position.y + cameraHeight, player.position.z);
-      camera.lookAt(player.position.x, 0, player.position.z);
+      const targetPos = player.position.clone().add(cameraOffset);
+      camera.position.copy(targetPos);
+      camera.lookAt(player.position);
     }
 
     function createPlayerIndicator() {
@@ -159,21 +170,32 @@
       });
 
       renderer.domElement.addEventListener('mousemove', (event) => {
-        if (mouseDownTime > 0) {
+        if (mouseDownTime > 0) { // Check if mouse button is held down
           const dragDistance = Math.sqrt(
             Math.pow(event.clientX - dragStart.x, 2) + 
             Math.pow(event.clientY - dragStart.y, 2)
           );
           
-          if (dragDistance > 5) {
+          if (dragDistance > 5 || isDragging) { // Start dragging if moved enough, or continue if already dragging
             isDragging = true;
-            // Handle camera drag for top-down view
+            
             const deltaX = event.clientX - dragStart.x;
             const deltaY = event.clientY - dragStart.y;
             
-            // Move camera position directly instead of using offset
-            camera.position.x -= deltaX * 0.02;
-            camera.position.z += deltaY * 0.02;
+            const rotationSpeed = 0.007; 
+            const zoomSpeed = 0.03;    
+
+            // Horizontal drag rotates cameraOffset around player's Y axis
+            const angle = -deltaX * rotationSpeed;
+            const currentOffset = cameraOffset.clone();
+            cameraOffset.x = currentOffset.x * Math.cos(angle) - currentOffset.z * Math.sin(angle);
+            cameraOffset.z = currentOffset.x * Math.sin(angle) + currentOffset.z * Math.cos(angle);
+
+            // Vertical drag adjusts the Y component of cameraOffset (camera height from player)
+            cameraOffset.y -= deltaY * zoomSpeed;
+            cameraOffset.y = Math.max(3, Math.min(25, cameraOffset.y)); // Clamp height/distance
+
+            updateCameraPosition();
             
             dragStart.set(event.clientX, event.clientY);
           }
@@ -206,13 +228,20 @@
       const intersects = raycaster.intersectObject(groundPlane);
       
       if (intersects.length > 0) {
-        const targetPos = intersects[0].point;
-        // Clamp to grid bounds and set Y to 1 (one tile up)
-        targetPos.x = Math.max(-15, Math.min(15, Math.round(targetPos.x)));
-        targetPos.z = Math.max(-15, Math.min(15, Math.round(targetPos.z)));
-        targetPos.y = 1;
+        const clickPos = intersects[0].point;
         
-        player.targetPosition.copy(targetPos);
+        // Determine target grid cell
+        const targetGridX = Math.round(clickPos.x);
+        const targetGridZ = Math.round(clickPos.z);
+
+        // Clamp to grid bounds
+        const clampedGridX = Math.max(-15, Math.min(15, targetGridX));
+        const clampedGridZ = Math.max(-15, Math.min(15, targetGridZ));
+        
+        // Get ground Y at the target cell
+        const targetGroundY = getGroundYAt(clampedGridX, clampedGridZ);
+        
+        player.targetPosition.set(clampedGridX, targetGroundY, clampedGridZ);
         player.moving = true;
       }
     }
@@ -230,9 +259,46 @@
           player.position.add(direction);
         }
         
-        player.indicator.position.copy(player.position);
-        updateCameraPosition();
+        // Ensure player indicator follows precisely, especially Y position
+        player.indicator.position.copy(player.position); 
+        updateCameraPosition(); // Camera follows player smoothly
       }
+    }
+
+    function getGroundYAt(gridCoordX, gridCoordZ) {
+      let groundSurfaceY = 0; // Default ground level if no blocks (Y=0 is the base plane)
+      let highestBlockBaseY = -Infinity;
+      let topBlockData = null;
+
+      // Find the highest block at the given X, Z coordinates
+      for (const key in gridBlocks) {
+        const block = gridBlocks[key];
+        // Block positions are stored as integer grid coords in their keys
+        const [bx, by, bz] = key.split(',').map(Number);
+
+        if (bx === gridCoordX && bz === gridCoordZ) {
+          if (by > highestBlockBaseY) {
+            highestBlockBaseY = by;
+            topBlockData = block.userData;
+          }
+        }
+      }
+
+      if (topBlockData) {
+        const blockType = topBlockData.blockType;
+        // Base of the block is at Y = highestBlockBaseY
+        // Player stands on top of this block
+        if (blockType === 'full') {
+          groundSurfaceY = highestBlockBaseY + 1.0; // Top surface of a full block (1 unit high)
+        } else if (blockType === 'stair' || blockType === 'half') {
+          groundSurfaceY = highestBlockBaseY + 0.5; // Top surface of stair/half block (0.5 units high)
+        } else {
+          // Default for unknown block types, assume half block height
+          groundSurfaceY = highestBlockBaseY + 0.5;
+        }
+      }
+      // If no block found, groundSurfaceY remains 0 (the base ground plane).
+      return groundSurfaceY;
     }
 
     function loadLevel(levelData) {

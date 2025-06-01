@@ -62,6 +62,7 @@
     let isDragging = false;
     let dragStart = new THREE.Vector2();
     let cameraOffset = new THREE.Vector3(5, 8, 5);
+    let cameraHeight = 15; // Height above player for top-down view
 
     function init() {
       scene = new THREE.Scene();
@@ -128,9 +129,8 @@
     }
 
     function updateCameraPosition() {
-      const targetPos = player.position.clone().add(cameraOffset);
-      camera.position.copy(targetPos);
-      camera.lookAt(player.position);
+      camera.position.set(player.position.x, player.position.y + cameraHeight, player.position.z);
+      camera.lookAt(player.position.x, 0, player.position.z);
     }
 
     function createPlayerIndicator() {
@@ -167,13 +167,13 @@
           
           if (dragDistance > 5) {
             isDragging = true;
-            // Handle camera drag
+            // Handle camera drag for top-down view
             const deltaX = event.clientX - dragStart.x;
             const deltaY = event.clientY - dragStart.y;
             
-            cameraOffset.x += deltaX * 0.01;
-            cameraOffset.z += deltaY * 0.01;
-            updateCameraPosition();
+            // Move camera position directly instead of using offset
+            camera.position.x -= deltaX * 0.02;
+            camera.position.z += deltaY * 0.02;
             
             dragStart.set(event.clientX, event.clientY);
           }
